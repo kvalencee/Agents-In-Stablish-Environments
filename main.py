@@ -73,6 +73,15 @@ class Agente:
 # %% Problema
 class Problema:
     def __init__(self, estado_inicial, estados_objetivos, laberinto, agente):
+        # Validar que el estado inicial no sea una pared
+        if laberinto[estado_inicial_fila][estado_inicial_columna] == 0:  # Asumiendo que 1 representa una pared
+            raise ValueError("El estado inicial no puede estar en una pared.")
+            print("El estado inicial no puede estar en una pared.")
+        # Validar que el estado objetivo no sea una pared
+        if laberinto[estado_objetivo_fila][estado_objetivo_columna] == 0:  # Asumiendo que 1 representa una pared
+            raise ValueError("El estado objetivo no puede estar en una pared.")
+            print("El estado objetivo no puede estar en una pared.")
+
         self.estado_inicial = estado_inicial
         self.estados_objetivos = estados_objetivos
         self.laberinto = laberinto
@@ -80,6 +89,7 @@ class Problema:
         self.mapa_visible = np.zeros_like(laberinto)  # Matriz para rastrear celdas visibles
         # Hacer visible la posición inicial
         self.mapa_visible[estado_inicial.fila][estado_inicial.columna] = 1
+
 
     def es_objetivo(self, estado):
         return estado in self.estados_objetivos
@@ -417,7 +427,23 @@ def jugar_laberinto_pygame(laberinto, estado_inicial, estado_objetivo, agente):
 
     pygame.quit()
 
+def solicitar_posicion_valida(laberinto, mensaje):
+    while True:
+        try:
+            fila = int(input(f"Ingrese la fila para {mensaje}: "))
+            columna = int(input(f"Ingrese la columna para {mensaje}: "))
 
+            if 0 <= fila < len(laberinto) and 0 <= columna < len(laberinto[0]):
+                if laberinto[fila][columna] != 1:  # No es pared
+                    return fila, columna
+                else:
+                    print("Error: No puedes colocar esta posición en una pared.")
+            else:
+                print("Error: Posición fuera de los límites del laberinto.")
+        except ValueError:
+            print("Error: Ingrese números enteros válidos.")
+
+# %% Main
 # %% Main
 if __name__ == '__main__':
     # Cargar el laberinto desde el archivo
@@ -438,13 +464,32 @@ if __name__ == '__main__':
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         ])
 
+
+    def solicitar_posicion_valida(laberinto, mensaje):
+        while True:
+            try:
+                fila = int(input(f"Ingrese la fila para {mensaje}: "))
+                columna = int(input(f"Ingrese la columna para {mensaje}: "))
+
+                if 0 <= fila < len(laberinto) and 0 <= columna < len(laberinto[0]):
+                    if laberinto[fila][columna] != 0:  # No es pared
+                        return fila, columna
+                    else:
+                        print("Error: No puedes colocar esta posición en una pared.")
+                else:
+                    print("Error: Posición fuera de los límites del laberinto.")
+            except ValueError:
+                print("Error: Ingrese números enteros válidos.")
+
+
     # Definir estados inicial y objetivo
-    print("Por favor, ingresa la fila del estado inicial y la columna del estado inicial")
-    estado_inicial_fila = int(input("Fila inicial: "))
-    estado_inicial_columna = int(input("Columna inicial: "))
-    print("Ahora, ingresa la fila y columna del estado objetivo")
-    estado_objetivo_fila = int(input("Fila objetivo: "))
-    estado_objetivo_columna = int(input("Columna objetivo: "))
+    estado_inicial_fila, estado_inicial_columna = solicitar_posicion_valida(laberinto, "el estado inicial")
+    estado_objetivo_fila, estado_objetivo_columna = solicitar_posicion_valida(laberinto, "el estado objetivo")
+
+    # Validar que el estado objetivo no sea una pared
+    if laberinto[estado_objetivo_fila][estado_objetivo_columna] == 0:
+        print("Error: El estado objetivo no puede estar en una pared.")
+        sys.exit(1)
 
     estado_inicial = Estado(estado_inicial_fila, estado_inicial_columna, 'derecha')
     estado_objetivo = Estado(estado_objetivo_fila, estado_objetivo_columna)
