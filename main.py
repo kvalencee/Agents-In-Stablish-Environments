@@ -42,12 +42,16 @@ class Agente:
         - 'puede_girar_derecha': bool
         - 'vision_lejana': bool (si puede ver más allá de la celda actual al sensar)
         - 'rango_movimiento': int (cuántas celdas puede avanzar de una vez)
+        - 'vision_omni': bool (nueva habilidad para ver en todas direcciones)
         """
         self.nombre = nombre
         self.habilidades = habilidades
-        self.historial = []  # Para guardar el árbol de decisiones
-        self.camino_visitado = set()  # Para marcar celdas visitadas
-        self.puntos_decision = set()  # Para marcar donde tomó decisiones
+        self.historial = []
+        self.camino_visitado = set()
+        self.puntos_decision = set()
+        self.vision_omni_activada = False
+        self.cooldown_omni = 0
+        self.duracion_omni = 3  # Turnos que dura la visión omni
 
     def puede_realizar_accion(self, accion):
         if accion.nombre == 'girar_izquierda':
@@ -73,23 +77,12 @@ class Agente:
 # %% Problema
 class Problema:
     def __init__(self, estado_inicial, estados_objetivos, laberinto, agente):
-        # Validar que el estado inicial no sea una pared
-        if laberinto[estado_inicial_fila][estado_inicial_columna] == 0:  # Asumiendo que 1 representa una pared
-            raise ValueError("El estado inicial no puede estar en una pared.")
-            print("El estado inicial no puede estar en una pared.")
-        # Validar que el estado objetivo no sea una pared
-        if laberinto[estado_objetivo_fila][estado_objetivo_columna] == 0:  # Asumiendo que 1 representa una pared
-            raise ValueError("El estado objetivo no puede estar en una pared.")
-            print("El estado objetivo no puede estar en una pared.")
-
         self.estado_inicial = estado_inicial
         self.estados_objetivos = estados_objetivos
         self.laberinto = laberinto
         self.agente = agente
-        self.mapa_visible = np.zeros_like(laberinto)  # Matriz para rastrear celdas visibles
-        # Hacer visible la posición inicial
+        self.mapa_visible = np.zeros_like(laberinto)
         self.mapa_visible[estado_inicial.fila][estado_inicial.columna] = 1
-
 
     def es_objetivo(self, estado):
         return estado in self.estados_objetivos
@@ -99,7 +92,32 @@ class Problema:
         fila, columna = estado.fila, estado.columna
 
         # Revelar según habilidades del agente
-        if self.agente.habilidades.get('vision_lejana', False):
+        if self.agente.vision_omni_activada:
+            # Visión omni-direccional (todas direcciones)
+            direcciones = ['arriba', 'abajo', 'izquierda', 'derecha']
+            alcance = 3
+
+            for direccion in direcciones:
+                for i in range(1, alcance + 1):
+                    if direccion == "arriba":
+                        f, c = fila - i, columna
+                    elif direccion == "abajo":
+                        f, c = fila + i, columna
+                    elif direccion == "izquierda":
+                        f, c = fila, columna - i
+                    elif direccion == "derecha":
+                        f, c = fila, columna + i
+
+                    if 0 <= f < len(self.laberinto) and 0 <= c < len(self.laberinto[0]):
+                        self.mapa_visible[f][c] = 1
+                        if self.laberinto[f][c] in [0, 5]:  # Si es pared o montaña
+                            break
+
+            # Desactivar después de usar
+            self.agente.vision_omni_activada = False
+            self.agente.cooldown_omni = 5  # 5 turnos de cooldown
+
+        elif self.agente.habilidades.get('vision_lejana', False):
             # Visión de largo alcance (3 celdas)
             for i in range(1, 4):
                 if estado.direccion == "arriba":
@@ -139,9 +157,7 @@ class Problema:
         elif estado.direccion == "derecha":
             nueva_fila, nueva_columna = fila, columna + 1
 
-        if (
-                0 <= nueva_fila < len(self.laberinto)
-                and 0 <= nueva_columna < len(self.laberinto[0])
+        if (0 <= nueva_fila < len(self.laberinto) and 0 <= nueva_columna < len(self.laberinto[0])
                 and self.laberinto[nueva_fila][nueva_columna] != 0  # Pared
                 and self.laberinto[nueva_fila][nueva_columna] != 5  # Montaña
         ):
@@ -164,8 +180,7 @@ class Problema:
                 nueva_fila, nueva_columna = fila, columna + paso
 
             # Verificar si la nueva posición es válida
-            if not (
-                    0 <= nueva_fila < len(self.laberinto)
+            if not (0 <= nueva_fila < len(self.laberinto)
                     and 0 <= nueva_columna < len(self.laberinto[0])
                     and self.laberinto[nueva_fila][nueva_columna] != 0  # Pared
                     and self.laberinto[nueva_fila][nueva_columna] != 5  # Montaña
@@ -298,11 +313,19 @@ def visualizar_laberinto_pygame(laberinto, estado_actual, problema, screen, font
     text_surface = font.render(info_text, True, (255, 255, 255))
     screen.blit(text_surface, (10, len(laberinto) * cell_size + 10))
 
-    agente_info = f"Agente: {problema.agente.nombre} | Habilidades: {problema.agente.habilidades}"
+    # Mostrar estado de la visión omni
+    omni_status = ""
+    if 'vision_omni' in problema.agente.habilidades and problema.agente.habilidades['vision_omni']:
+        if problema.agente.vision_omni_activada:
+            omni_status = " (OMNI ACTIVA)"
+        elif problema.agente.cooldown_omni > 0:
+            omni_status = f" (Cooldown: {problema.agente.cooldown_omni})"
+
+    agente_info = f"Agente: {problema.agente.nombre} | Habilidades: {problema.agente.habilidades}{omni_status}"
     agente_surface = font.render(agente_info, True, (255, 255, 255))
     screen.blit(agente_surface, (10, len(laberinto) * cell_size + 40))
 
-    instrucciones = "Flechas: Moverse | Espacio: Sensar | R: Reiniciar | ESC: Salir | T: Ver árbol"
+    instrucciones = "Flechas: Moverse | Espacio: Sensar | R: Reiniciar | ESC: Salir | T: Ver Recorrido | O: Visión Omni"
     instrucciones_surface = font.render(instrucciones, True, (255, 255, 255))
     screen.blit(instrucciones_surface, (10, len(laberinto) * cell_size + 70))
 
@@ -312,7 +335,7 @@ def mostrar_arbol_decisiones(agente, font, screen, width, height):
     screen.fill((0, 0, 0))
     y_pos = 50
 
-    titulo = font.render("Árbol de Decisiones del Agente", True, (255, 255, 255))
+    titulo = font.render("Recorrido del agente", True, (255, 255, 255))
     screen.blit(titulo, (width // 2 - titulo.get_width() // 2, 20))
 
     for i, decision in enumerate(agente.historial):
@@ -322,7 +345,6 @@ def mostrar_arbol_decisiones(agente, font, screen, width, height):
         y_pos += 30
 
         if y_pos > height - 50:
-            # Si llegamos al final de la pantalla, permitir scroll
             texto_continuar = font.render("Presione cualquier tecla para continuar...", True, (255, 255, 255))
             screen.blit(texto_continuar, (width // 2 - texto_continuar.get_width() // 2, height - 30))
             pygame.display.flip()
@@ -369,6 +391,10 @@ def jugar_laberinto_pygame(laberinto, estado_inicial, estado_objetivo, agente):
     running = True
 
     while running:
+        # Actualizar cooldown de habilidades
+        if agente.cooldown_omni > 0:
+            agente.cooldown_omni -= 1
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -380,6 +406,8 @@ def jugar_laberinto_pygame(laberinto, estado_inicial, estado_objetivo, agente):
                     # Reiniciar el juego
                     problema = Problema(estado_inicial, [estado_objetivo], laberinto, agente)
                     estado_actual = estado_inicial
+                    agente.vision_omni_activada = False
+                    agente.cooldown_omni = 0
                 elif event.key == pygame.K_t:
                     # Mostrar árbol de decisiones
                     mostrar_arbol_decisiones(agente, font, screen, width, height)
@@ -402,6 +430,12 @@ def jugar_laberinto_pygame(laberinto, estado_inicial, estado_objetivo, agente):
                     resultado = problema.sensar_camino(estado_actual)
                     agente.registrar_decision(estado_actual, Accion('sensar'),
                                               "Camino libre" if resultado else "Obstáculo detectado")
+                elif event.key == pygame.K_o:  # Tecla 'O' para activar visión omni
+                    if (agente.habilidades.get('vision_omni', False) and
+                            agente.cooldown_omni == 0 and
+                            not agente.vision_omni_activada):
+                        agente.vision_omni_activada = True
+                        problema.sensar_camino(estado_actual)  # Forzar sensado inmediato
 
         # Verificar si se alcanzó el objetivo
         if problema.es_objetivo(estado_actual):
@@ -410,7 +444,6 @@ def jugar_laberinto_pygame(laberinto, estado_inicial, estado_objetivo, agente):
             text_surface = font.render(win_text, True, (255, 255, 255))
             screen.blit(text_surface, (width // 2 - text_surface.get_width() // 2, height // 2))
 
-            # Mostrar estadísticas
             stats_text = f"Celdas visitadas: {len(agente.camino_visitado)} | Decisiones tomadas: {len(agente.historial)}"
             stats_surface = font.render(stats_text, True, (255, 255, 255))
             screen.blit(stats_surface, (width // 2 - stats_surface.get_width() // 2, height // 2 + 40))
@@ -427,6 +460,7 @@ def jugar_laberinto_pygame(laberinto, estado_inicial, estado_objetivo, agente):
 
     pygame.quit()
 
+
 def solicitar_posicion_valida(laberinto, mensaje):
     while True:
         try:
@@ -434,7 +468,7 @@ def solicitar_posicion_valida(laberinto, mensaje):
             columna = int(input(f"Ingrese la columna para {mensaje}: "))
 
             if 0 <= fila < len(laberinto) and 0 <= columna < len(laberinto[0]):
-                if laberinto[fila][columna] != 1:  # No es pared
+                if laberinto[fila][columna] != 0:  # No es pared
                     return fila, columna
                 else:
                     print("Error: No puedes colocar esta posición en una pared.")
@@ -443,7 +477,7 @@ def solicitar_posicion_valida(laberinto, mensaje):
         except ValueError:
             print("Error: Ingrese números enteros válidos.")
 
-# %% Main
+
 # %% Main
 if __name__ == '__main__':
     # Cargar el laberinto desde el archivo
@@ -464,24 +498,6 @@ if __name__ == '__main__':
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         ])
 
-
-    def solicitar_posicion_valida(laberinto, mensaje):
-        while True:
-            try:
-                fila = int(input(f"Ingrese la fila para {mensaje}: "))
-                columna = int(input(f"Ingrese la columna para {mensaje}: "))
-
-                if 0 <= fila < len(laberinto) and 0 <= columna < len(laberinto[0]):
-                    if laberinto[fila][columna] != 0:  # No es pared
-                        return fila, columna
-                    else:
-                        print("Error: No puedes colocar esta posición en una pared.")
-                else:
-                    print("Error: Posición fuera de los límites del laberinto.")
-            except ValueError:
-                print("Error: Ingrese números enteros válidos.")
-
-
     # Definir estados inicial y objetivo
     estado_inicial_fila, estado_inicial_columna = solicitar_posicion_valida(laberinto, "el estado inicial")
     estado_objetivo_fila, estado_objetivo_columna = solicitar_posicion_valida(laberinto, "el estado objetivo")
@@ -499,6 +515,7 @@ if __name__ == '__main__':
     print("1. Agente básico (movimiento normal)")
     print("2. Agente con visión limitada (no puede girar a la izquierda)")
     print("3. Agente veloz (puede avanzar 2 celdas, pero no sensar)")
+    print("4. Agente Omni (visión en todas direcciones)")
 
     opcion = input("Opción: ")
 
@@ -512,6 +529,14 @@ if __name__ == '__main__':
             'rango_movimiento': 2,
             'vision_lejana': False,
             'puede_sensar': False
+        })
+    elif opcion == "4":
+        agente = Agente("Explorador Omni", {
+            'vision_omni': True,
+            'vision_lejana': False,
+            'puede_girar_izquierda': True,
+            'puede_girar_derecha': True,
+            'rango_movimiento': 1
         })
     else:
         agente = Agente("Explorador Básico", {
